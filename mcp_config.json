@@ -1,0 +1,18 @@
+{
+    "mcpServers": {
+        "ytdlp": {
+            "command": "python",
+            "args": [
+                "mcp_servers/ytdlp_server/server.py"
+            ],
+            "cwd": "c:/Users/Wilfreid/Documents/GitHub/ElViolevador_bot"
+        },
+        "telegram": {
+            "command": "python",
+            "args": [
+                "mcp_servers/telegram_server/server.py"
+            ],
+            "cwd": "c:/Users/Wilfreid/Documents/GitHub/ElViolevador_bot"
+        }
+    }
+}

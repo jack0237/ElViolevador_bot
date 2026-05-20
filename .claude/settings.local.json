@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Wilfreid\\\\Documents\\\\GitHub\\\\ElViolevador_bot\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Wilfreid\\\\Documents\\\\GitHub\\\\ElViolevador_bot\\\\bot\" -Name | Where-Object { $_ -match '\\\\.py$' })",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\Wilfreid\\\\Documents\\\\GitHub\\\\ElViolevador_bot\" -Name | Where-Object { -not $_.StartsWith\\(\"venv\"\\) })",
+      "PowerShell(Get-ChildItem c:\\\\Users\\\\Wilfreid\\\\Documents\\\\GitHub\\\\ElViolevador_bot | Where-Object { $_.Name -ne 'venv' } | Select-Object Name, PSIsContainer)"
+    ]
+  }
+}
