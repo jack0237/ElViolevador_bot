@@ -1,5 +1,6 @@
 # Secrets
 .env
+cookies.txt
 
 # Downloads / temp files
 /downloads/

@@ -49,3 +49,11 @@ MAX_FILE_BYTES: int = int(os.getenv("MAX_FILE_BYTES", str(50 * 1024 * 1024)))
 RATE_LIMIT_CALLS: int = int(os.getenv("RATE_LIMIT_CALLS", "3"))
 # Time window in seconds
 RATE_LIMIT_PERIOD: int = int(os.getenv("RATE_LIMIT_PERIOD", "60"))
+
+# ── YouTube authentication ─────────────────────────────────────────────────────
+# Path to a Netscape-format cookies.txt file exported from your browser.
+# Takes priority over YOUTUBE_COOKIES_BROWSER when both are set.
+YOUTUBE_COOKIES_FILE: str = os.getenv("YOUTUBE_COOKIES_FILE", "")
+# Browser to extract cookies from automatically: chrome, firefox, edge, safari.
+# Only used when YOUTUBE_COOKIES_FILE is not set.
+YOUTUBE_COOKIES_BROWSER: str = os.getenv("YOUTUBE_COOKIES_BROWSER", "")

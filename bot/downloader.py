@@ -18,7 +18,12 @@ from pathlib import Path
 import httpx
 import yt_dlp
 
-from bot.config import DOWNLOAD_DIR, MAX_FILE_BYTES
+from bot.config import (
+    DOWNLOAD_DIR,
+    MAX_FILE_BYTES,
+    YOUTUBE_COOKIES_BROWSER,
+    YOUTUBE_COOKIES_FILE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +105,18 @@ def _is_unsupported_error(msg: str) -> bool:
     return any(p in lower for p in _UNSUPPORTED_PHRASES)
 
 
+def _cookie_opts() -> dict:
+    """Return yt-dlp cookie options from config, or {} if none configured."""
+    if YOUTUBE_COOKIES_FILE:
+        path = Path(YOUTUBE_COOKIES_FILE)
+        if path.exists():
+            return {"cookiefile": str(path)}
+        logger.warning("YOUTUBE_COOKIES_FILE '%s' not found — proceeding without cookies", YOUTUBE_COOKIES_FILE)
+    elif YOUTUBE_COOKIES_BROWSER:
+        return {"cookiesfrombrowser": (YOUTUBE_COOKIES_BROWSER,)}
+    return {}
+
+
 def _check_size(path: Path) -> None:
     size = path.stat().st_size
     if size > MAX_FILE_BYTES:
@@ -150,6 +167,7 @@ def _sync_download_video(url: str, out_dir: Path) -> Path:
         "restrictfilenames": True,
         "noplaylist": True,
         "progress_hooks": [_hook],
+        **_cookie_opts(),
     }
 
     try:
@@ -207,6 +225,7 @@ def _sync_download_audio(url: str, out_dir: Path) -> Path:
                 "preferredquality": "192",
             }
         ],
+        **_cookie_opts(),
     }
 
     try:
@@ -507,6 +526,7 @@ def _sync_download_playlist(url: str, out_dir: Path, max_videos: int) -> list[Pa
         "noplaylist": False,
         "playlistend": max_videos,
         "progress_hooks": [_hook],
+        **_cookie_opts(),
     }
 
     try:
