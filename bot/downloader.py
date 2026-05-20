@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 # ── Silent yt-dlp logger ──────────────────────────────────────────────────────
 
 class _YtdlpLogger:
-    """Routes yt-dlp stderr noise to Python logging at DEBUG level."""
+    """Routes yt-dlp output to Python logging."""
 
-    def debug(self, msg: str) -> None:    logger.debug("[yt-dlp] %s", msg)   # noqa: E704
-    def info(self, msg: str) -> None:     logger.debug("[yt-dlp] %s", msg)   # noqa: E704
-    def warning(self, msg: str) -> None:  logger.debug("[yt-dlp] %s", msg)   # noqa: E704
-    def error(self, msg: str) -> None:    logger.debug("[yt-dlp] %s", msg)   # noqa: E704
+    def debug(self, msg: str) -> None:    logger.debug("[yt-dlp] %s", msg)    # noqa: E704
+    def info(self, msg: str) -> None:     logger.debug("[yt-dlp] %s", msg)    # noqa: E704
+    def warning(self, msg: str) -> None:  logger.info("[yt-dlp] %s", msg)     # noqa: E704
+    def error(self, msg: str) -> None:    logger.warning("[yt-dlp] %s", msg)  # noqa: E704
 
 
 # ── Custom exceptions ─────────────────────────────────────────────────────────
@@ -85,6 +85,19 @@ def _clean_ytdlp_error(msg: str) -> str:
         if msg.startswith(prefix):
             return msg[len(prefix):]
     return msg
+
+
+_UNSUPPORTED_PHRASES = (
+    "no suitable extractor",
+    "unsupported url",
+    "no extractor found",
+    "ie key",
+)
+
+
+def _is_unsupported_error(msg: str) -> bool:
+    lower = msg.lower()
+    return any(p in lower for p in _UNSUPPORTED_PHRASES)
 
 
 def _check_size(path: Path) -> None:
@@ -144,7 +157,10 @@ def _sync_download_video(url: str, out_dir: Path) -> Path:
             info = ydl.extract_info(url, download=True)
             final = Path(ydl.prepare_filename(ydl.sanitize_info(info)))
     except yt_dlp.utils.DownloadError as exc:
-        raise UnsupportedURLError(_clean_ytdlp_error(str(exc))) from exc
+        clean = _clean_ytdlp_error(str(exc))
+        if _is_unsupported_error(clean):
+            raise UnsupportedURLError(clean) from exc
+        raise DownloadError(clean) from exc
 
     if downloaded:
         candidate = Path(downloaded[-1])
@@ -197,7 +213,10 @@ def _sync_download_audio(url: str, out_dir: Path) -> Path:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
     except yt_dlp.utils.DownloadError as exc:
-        raise UnsupportedURLError(_clean_ytdlp_error(str(exc))) from exc
+        clean = _clean_ytdlp_error(str(exc))
+        if _is_unsupported_error(clean):
+            raise UnsupportedURLError(clean) from exc
+        raise DownloadError(clean) from exc
 
     if downloaded:
         base = Path(downloaded[-1]).with_suffix(".mp3")
@@ -460,6 +479,51 @@ def _sync_download_images(url: str, out_dir: Path) -> list[Path]:
     )
 
 
+# ── Sync playlist worker ──────────────────────────────────────────────────────
+
+def _sync_download_playlist(url: str, out_dir: Path, max_videos: int) -> list[Path]:
+    """Download up to *max_videos* entries from a playlist and return their paths."""
+    uid = uuid.uuid4().hex
+    outtmpl = str(out_dir / f"{uid}_%(playlist_index)03d_%(title).60s.%(ext)s")
+
+    downloaded: list[str] = []
+
+    def _hook(d: dict) -> None:
+        if d["status"] == "finished":
+            downloaded.append(d.get("filename", ""))
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "logger": _YtdlpLogger(),
+        "format": (
+            f"bestvideo[filesize<{MAX_FILE_BYTES}]+bestaudio[filesize<{MAX_FILE_BYTES}]"
+            f"/best[filesize<{MAX_FILE_BYTES}]"
+            "/bestvideo+bestaudio/best"
+        ),
+        "outtmpl": outtmpl,
+        "merge_output_format": "mp4",
+        "restrictfilenames": True,
+        "noplaylist": False,
+        "playlistend": max_videos,
+        "progress_hooks": [_hook],
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except yt_dlp.utils.DownloadError as exc:
+        clean = _clean_ytdlp_error(str(exc))
+        if _is_unsupported_error(clean):
+            raise UnsupportedURLError(clean) from exc
+        raise DownloadError(clean) from exc
+
+    paths = sorted(out_dir.glob(f"{uid}_*"))
+    if not paths:
+        raise DownloadError("Playlist download finished but no output files were found.")
+    return paths
+
+
 # ── Public async API ──────────────────────────────────────────────────────────
 
 async def download_video(url: str) -> Path:
@@ -482,6 +546,28 @@ async def download_audio(url: str) -> Path:
     _check_size(path)
     logger.info("Audio ready: %s (%.1f MB)", path.name, path.stat().st_size / 1_048_576)
     return path
+
+
+async def download_playlist(url: str, max_videos: int = 10) -> list[Path]:
+    """Download up to *max_videos* from a playlist URL. Returns paths of valid files."""
+    validate_url(url)
+    logger.info("Starting playlist download: %s (max %d videos)", url, max_videos)
+    loop = asyncio.get_event_loop()
+    paths: list[Path] = await loop.run_in_executor(
+        None, _sync_download_playlist, url, DOWNLOAD_DIR, max_videos
+    )
+    valid: list[Path] = []
+    for p in paths:
+        try:
+            _check_size(p)
+            valid.append(p)
+        except FileTooLargeError:
+            logger.warning("Skipping oversized playlist video: %s", p.name)
+            cleanup(p)
+    if not valid:
+        raise DownloadError("All playlist videos exceeded the 50 MB Telegram limit.")
+    logger.info("Playlist ready: %d video(s)", len(valid))
+    return valid
 
 
 async def download_images(url: str) -> list[Path]:

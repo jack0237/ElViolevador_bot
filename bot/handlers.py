@@ -28,6 +28,7 @@ from bot.downloader import (
     cleanup_many,
     download_audio,
     download_images,
+    download_playlist,
     download_video,
 )
 from bot.rate_limiter import RateLimitExceeded, limiter
@@ -169,6 +170,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📋 *Commands:*\n"
         "• `/video <url>` — Download video\n"
         "• `/audio <url>` — Download audio as MP3\n"
+        "• `/playlist <url>` — Download playlist (up to 10 videos)\n"
         "• Just paste a URL — I'll auto-detect video or photo\n\n"
         "⚠️ Max file size: *50 MB* (Telegram limit)\n"
         "⏱ Rate limit: *3 requests per 60 seconds*",
@@ -183,7 +185,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "`/start` — Welcome message\n"
         "`/help` — This message\n"
         "`/video <url>` — Download video (falls back to image if needed)\n"
-        "`/audio <url>` — Download audio (MP3)\n\n"
+        "`/audio <url>` — Download audio (MP3)\n"
+        "`/playlist <url>` — Download playlist (up to 10 videos)\n\n"
         "*Supported sites:* YouTube, TikTok, Instagram, Twitter/X, "
         "Reddit, SoundCloud, Twitch, Pinterest, and 1000+ more.\n\n"
         "*Photo carousels* (TikTok, Instagram) are sent as a media group.\n\n"
@@ -240,6 +243,39 @@ async def cmd_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             cleanup(path)
 
 
+async def cmd_playlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await _check_access(update):
+        return
+    if not await _check_rate(update):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: `/playlist <url>`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    url = context.args[0]
+    logger.info("/playlist %s from user %d", url, update.effective_user.id)
+    status_msg = await update.message.reply_text("⏬ Downloading playlist (up to 10 videos)…")
+    paths: list[Path] = []
+    try:
+        paths = await download_playlist(url)
+        for i, path in enumerate(paths, 1):
+            await update.message.chat.send_action(ChatAction.UPLOAD_VIDEO)
+            with path.open("rb") as fh:
+                await update.message.reply_video(
+                    video=fh,
+                    caption=f"🎬 `{path.name}` ({i}/{len(paths)})",
+                    parse_mode=ParseMode.MARKDOWN,
+                    supports_streaming=True,
+                )
+    except Exception as exc:
+        await _handle_download_error(update, exc)
+    finally:
+        await status_msg.delete()
+        if paths:
+            cleanup_many(paths)
+
+
 async def msg_url_autodetect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Detect bare URL in chat and auto-download (video first, then images)."""
     if not await _check_access(update):
@@ -266,6 +302,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("video", cmd_video))
     app.add_handler(CommandHandler("audio", cmd_audio))
+    app.add_handler(CommandHandler("playlist", cmd_playlist))
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.Regex(r"https?://\S+"),
