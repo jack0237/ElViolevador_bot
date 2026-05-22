@@ -105,15 +105,58 @@ def _is_unsupported_error(msg: str) -> bool:
     return any(p in lower for p in _UNSUPPORTED_PHRASES)
 
 
+def _detect_browser() -> str | None:
+    """Return the first browser whose profile directory exists on this machine."""
+    import os
+    local = os.environ.get("LOCALAPPDATA", "")
+    roaming = os.environ.get("APPDATA", "")
+    home = os.path.expanduser("~")
+
+    candidates: list[tuple[str, str]]
+    if sys.platform == "win32":
+        candidates = [
+            ("chrome",   os.path.join(local, "Google", "Chrome", "User Data")),
+            ("edge",     os.path.join(local, "Microsoft", "Edge", "User Data")),
+            ("brave",    os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data")),
+            ("firefox",  os.path.join(roaming, "Mozilla", "Firefox", "Profiles")),
+            ("chromium", os.path.join(local, "Chromium", "User Data")),
+        ]
+    elif sys.platform == "darwin":
+        candidates = [
+            ("chrome",  os.path.join(home, "Library", "Application Support", "Google", "Chrome")),
+            ("safari",  os.path.join(home, "Library", "Cookies")),
+            ("firefox", os.path.join(home, "Library", "Application Support", "Firefox", "Profiles")),
+            ("edge",    os.path.join(home, "Library", "Application Support", "Microsoft Edge")),
+        ]
+    else:
+        candidates = [
+            ("firefox",  os.path.join(home, ".mozilla", "firefox")),
+            ("chrome",   os.path.join(home, ".config", "google-chrome")),
+            ("chromium", os.path.join(home, ".config", "chromium")),
+        ]
+
+    for browser, profile_dir in candidates:
+        if os.path.isdir(profile_dir):
+            logger.info("Auto-detected browser for cookies: %s", browser)
+            return browser
+    return None
+
+
 def _cookie_opts() -> dict:
-    """Return yt-dlp cookie options from config, or {} if none configured."""
+    """Return yt-dlp cookie options. Explicit config takes priority; falls back to auto-detect."""
     if YOUTUBE_COOKIES_FILE:
         path = Path(YOUTUBE_COOKIES_FILE)
         if path.exists():
             return {"cookiefile": str(path)}
         logger.warning("YOUTUBE_COOKIES_FILE '%s' not found — proceeding without cookies", YOUTUBE_COOKIES_FILE)
-    elif YOUTUBE_COOKIES_BROWSER:
+        return {}
+    if YOUTUBE_COOKIES_BROWSER:
         return {"cookiesfrombrowser": (YOUTUBE_COOKIES_BROWSER,)}
+    # Auto-detect: find any installed browser and extract cookies automatically
+    browser = _detect_browser()
+    if browser:
+        return {"cookiesfrombrowser": (browser,)}
+    logger.warning("No browser found for cookie auto-detection — YouTube may block downloads")
     return {}
 
 
